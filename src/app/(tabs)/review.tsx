@@ -137,7 +137,12 @@ function MonthButton({ direction, onPress }: { direction: 'previous' | 'next'; o
 
 function HappinessEntryCard({ entry, onPress }: { entry: HappinessEntry; onPress: () => void }) {
   const levelColors = getHappinessLevelColors(entry.amount);
-  return <Pressable accessibilityLabel={`快樂紀錄：${entry.content}`} accessibilityRole="button" onPress={onPress} style={({ pressed }) => [styles.card, { backgroundColor: levelColors.backgroundColor }, pressed && styles.pressed]}><View style={styles.cardHeader}><Text style={[styles.amount, { color: levelColors.amountColor }]}>${entry.amount}</Text><Text style={[styles.dateTime, { color: levelColors.timestampColor }]}>{entry.occurred_local_date}　{entry.occurred_local_time}</Text></View><Text style={[styles.content, { color: levelColors.contentColor }]}>{entry.content}</Text></Pressable>;
+  return <Pressable accessibilityLabel={`快樂紀錄：${entry.content}`} accessibilityRole="button" onPress={onPress} style={({ pressed }) => [styles.card, { backgroundColor: levelColors.backgroundColor }, pressed && styles.pressed]}><View style={styles.cardHeader}><Text style={[styles.amount, { color: levelColors.amountColor }]}>${entry.amount}</Text><Text style={[styles.dateTime, { color: levelColors.timestampColor }]}>{entry.occurred_local_date}　{getWeekdayLabel(entry.occurred_local_date)}</Text></View><Text style={[styles.content, { color: levelColors.contentColor }]}>{entry.content}</Text></Pressable>;
+}
+
+function getWeekdayLabel(localDate: string): string {
+  const [year, month, day] = localDate.split('-').map(Number);
+  return ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][new Date(year, month - 1, day).getDay()];
 }
 
 function LoadingState() {
