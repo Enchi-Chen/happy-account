@@ -5,6 +5,10 @@ import initSqlJs from 'sql.js';
 
 import { createHappinessOccurrence } from '../src/data/date.ts';
 import {
+  getDefaultHappinessFormValues,
+  validateHappinessForm,
+} from '../src/data/happiness-form.ts';
+import {
   createHappinessRepository,
   DATABASE_SCHEMA_VERSION,
   initializeDatabase,
@@ -114,6 +118,43 @@ test('converts a local date, time, and UTC offset without changing the local dat
     occurredLocalTime: '00:15',
     occurredUtcOffsetMinutes: 480,
   });
+});
+
+test('validates deposit form values and preserves a backdated local occurrence', () => {
+  const valid = validateHappinessForm(
+    {
+      amountChoice: 'custom',
+      customAmount: '100',
+      content: '補記：和朋友散步',
+      localDate: '2025-12-31',
+      localTime: '23:45',
+    },
+    480,
+  );
+
+  assert.equal(valid.valid, true);
+  if (valid.valid) {
+    assert.equal(valid.draft.amount, 100);
+    assert.equal(valid.draft.occurred_local_date, '2025-12-31');
+    assert.equal(valid.draft.occurred_at_utc, '2025-12-31T15:45:00.000Z');
+  }
+
+  for (const invalidAmount of ['', '0', '-5', '1.5']) {
+    assert.equal(
+      validateHappinessForm({
+        amountChoice: 'custom', customAmount: invalidAmount, content: '一件快樂的事', localDate: '2026-01-01', localTime: '12:00',
+      }).valid,
+      false,
+    );
+  }
+
+  assert.equal(
+    validateHappinessForm({
+      ...getDefaultHappinessFormValues(new Date('2026-01-02T03:04:00')),
+      content: '   ',
+    }).valid,
+    false,
+  );
 });
 
 function draftFor(content, date = '2026-01-01', time = '12:00', offset = 480) {
