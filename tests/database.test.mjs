@@ -8,6 +8,7 @@ import {
   getDefaultHappinessFormValues,
   validateHappinessForm,
 } from '../src/data/happiness-form.ts';
+import { getMonthDateRange, moveMonth, parseMonthKey } from '../src/data/month.ts';
 import {
   createHappinessRepository,
   DATABASE_SCHEMA_VERSION,
@@ -96,6 +97,52 @@ test('supports create, read, update, ordered reads, and delete', async () => {
   assert.equal(await repository.remove(earlier.id), true);
   assert.equal(await repository.getById(earlier.id), null);
   assert.equal(await repository.remove(earlier.id), false);
+});
+
+test('reads one selected month in descending occurrence order', async () => {
+  const database = createDatabaseAdapter();
+  await initializeDatabase(database);
+  const repository = createHappinessRepository(database);
+
+  const january = await repository.create(draftFor('一月的快樂', '2026-01-31', '23:59', 480));
+  const februaryEarly = await repository.create(draftFor('二月早上', '2026-02-01', '08:00', 480));
+  const februaryLate = await repository.create(draftFor('二月晚上', '2026-02-01', '20:00', 480));
+  const range = getMonthDateRange({ year: 2026, month: 2 });
+
+  assert.deepEqual(
+    (await repository.getByLocalDateRange(range.startDate, range.endDate)).map((entry) => entry.id),
+    [februaryLate.id, februaryEarly.id],
+  );
+  assert.notEqual(january.id, februaryLate.id);
+});
+
+test('moves an edited entry to its new month, keeps ordering, and persists after reopen', async () => {
+  const firstOpen = createDatabaseAdapter();
+  await initializeDatabase(firstOpen);
+  const repository = createHappinessRepository(firstOpen);
+  const edited = await repository.create(draftFor('原本的一月紀錄', '2026-01-10', '09:00', 480));
+  const laterFebruary = await repository.create(draftFor('二月晚上', '2026-02-15', '20:00', 480));
+
+  const updated = await repository.update(edited.id, draftFor('修改後的三月紀錄', '2026-03-01', '08:00', 480));
+  assert.equal(updated?.content, '修改後的三月紀錄');
+  assert.equal((await repository.getByLocalDateRange('2026-01-01', '2026-02-01')).length, 0);
+  assert.deepEqual(
+    (await repository.getByLocalDateRange('2026-02-01', '2026-04-01')).map((entry) => entry.id),
+    [updated?.id, laterFebruary.id],
+  );
+
+  const reopened = createDatabaseAdapter(firstOpen.export());
+  await initializeDatabase(reopened);
+  assert.equal((await createHappinessRepository(reopened).getById(edited.id))?.content, '修改後的三月紀錄');
+});
+
+test('parses and moves selected months across year boundaries', () => {
+  assert.deepEqual(parseMonthKey('2026-02'), { year: 2026, month: 2 });
+  assert.equal(parseMonthKey('2026-13'), null);
+  assert.deepEqual(moveMonth({ year: 2026, month: 1 }, -1), { year: 2025, month: 12 });
+  assert.deepEqual(getMonthDateRange({ year: 2026, month: 12 }), {
+    startDate: '2026-12-01', endDate: '2027-01-01',
+  });
 });
 
 test('persists entries after a serialized database is reopened', async () => {

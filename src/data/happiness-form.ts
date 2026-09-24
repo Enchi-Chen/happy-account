@@ -1,5 +1,5 @@
 import { createHappinessOccurrence, getCurrentUtcOffsetMinutes } from './date';
-import type { HappinessEntryDraft } from './schema';
+import type { HappinessEntry, HappinessEntryDraft } from './schema';
 
 export const PRESET_AMOUNTS = [5, 10, 20, 50, 100] as const;
 
@@ -25,6 +25,20 @@ export function getDefaultHappinessFormValues(now = new Date()): HappinessFormVa
     content: '',
     localDate,
     localTime,
+  };
+}
+
+export function getHappinessFormValues(entry: HappinessEntry): HappinessFormValues {
+  const amountChoice = PRESET_AMOUNTS.includes(entry.amount as (typeof PRESET_AMOUNTS)[number])
+    ? entry.amount
+    : 'custom';
+
+  return {
+    amountChoice,
+    customAmount: amountChoice === 'custom' ? String(entry.amount) : '',
+    content: entry.content,
+    localDate: entry.occurred_local_date,
+    localTime: entry.occurred_local_time,
   };
 }
 

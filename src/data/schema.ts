@@ -81,6 +81,15 @@ export function createHappinessRepository(database: DatabaseConnection) {
       );
     },
 
+    getByLocalDateRange(startDate: string, endDate: string): Promise<HappinessEntry[]> {
+      return database.getAllAsync<HappinessEntry>(
+        `SELECT * FROM happiness_entries
+         WHERE occurred_local_date >= ? AND occurred_local_date < ?
+         ORDER BY occurred_at_utc DESC, id DESC;`,
+        [startDate, endDate],
+      );
+    },
+
     async update(id: number, draft: HappinessEntryDraft): Promise<HappinessEntry | null> {
       const result = await database.runAsync(
         `UPDATE happiness_entries
