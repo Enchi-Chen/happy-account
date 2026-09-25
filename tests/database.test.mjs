@@ -116,6 +116,29 @@ test('reads one selected month in descending occurrence order', async () => {
   assert.notEqual(january.id, februaryLate.id);
 });
 
+test('pages filtered searches with amount ranges in stable descending order', async () => {
+  const database = createDatabaseAdapter();
+  await initializeDatabase(database);
+  const repository = createHappinessRepository(database);
+
+  const oldest = await repository.create({ ...draftFor('早餐', '2026-01-01', '08:00'), amount: 9 });
+  const middle = await repository.create({ ...draftFor('吃飯', '2026-02-01', '08:00'), amount: 50 });
+  const newest = await repository.create({ ...draftFor('吃飯和散步', '2026-03-01', '08:00'), amount: 100 });
+
+  const first = await repository.getPage({
+    contentQuery: '吃飯', amountRanges: [{ min: 50, max: 99 }, { min: 100, max: null }], limit: 1,
+  });
+  assert.deepEqual(first.map((entry) => entry.id), [newest.id]);
+  const second = await repository.getPage({
+    contentQuery: '吃飯', amountRanges: [{ min: 50, max: 99 }, { min: 100, max: null }], limit: 5,
+    cursor: { occurred_at_utc: first[0].occurred_at_utc, id: first[0].id },
+  });
+  assert.deepEqual(second.map((entry) => entry.id), [middle.id]);
+  assert.notEqual(oldest.id, middle.id);
+  assert.equal(await repository.hasMatchingEntryInMonth('2026-03-01', '2026-04-01', { contentQuery: '吃飯', amountRanges: [{ min: 100, max: null }] }), true);
+  assert.equal(await repository.hasMatchingEntryInMonth('2026-01-01', '2026-02-01', { contentQuery: '吃飯', amountRanges: [{ min: 100, max: null }] }), false);
+});
+
 test('moves an edited entry to its new month, keeps ordering, and persists after reopen', async () => {
   const firstOpen = createDatabaseAdapter();
   await initializeDatabase(firstOpen);

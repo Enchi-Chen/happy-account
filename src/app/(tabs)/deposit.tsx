@@ -13,7 +13,7 @@ import {
 import { createHappinessRepository } from '@/src/data/schema';
 
 export default function DepositScreen() {
-  const database = useSQLiteContext();
+  const database = useSQLiteContext(); // Get the SQLite database context
   const [formKey, setFormKey] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);

@@ -24,6 +24,20 @@ export type HappinessEntry = {
 
 export type HappinessEntryDraft = Omit<HappinessEntry, 'id' | 'created_at' | 'updated_at'>;
 
+export type HappinessAmountRange = {
+  min: number;
+  max: number | null;
+};
+
+export type HappinessEntryPageCursor = Pick<HappinessEntry, 'occurred_at_utc' | 'id'>;
+
+export type HappinessEntryPageQuery = {
+  limit: number;
+  cursor?: HappinessEntryPageCursor;
+  contentQuery?: string;
+  amountRanges?: HappinessAmountRange[];
+};
+
 //everytime when the app starts, we check if the database schema is up to date. If not, we apply migrations to bring it up to date.
 export async function initializeDatabase(database: DatabaseConnection): Promise<void> {
   await database.execAsync('PRAGMA journal_mode = WAL;');
@@ -90,6 +104,79 @@ export function createHappinessRepository(database: DatabaseConnection) {
       );
     },
 
+    /**
+     * Reads one stable, newest-first page.  The cursor keeps paging correct even
+     * when several entries share exactly the same occurrence timestamp.
+     */
+    getPage(query: HappinessEntryPageQuery): Promise<HappinessEntry[]> {
+      const conditions: string[] = [];
+      const params: SqlParameters = [];
+      const contentQuery = query.contentQuery?.trim();
+
+      if (contentQuery) {
+        conditions.push('content LIKE ? ESCAPE \'\\\'');
+        params.push(`%${escapeLikeValue(contentQuery)}%`);
+      }
+
+      if (query.amountRanges && query.amountRanges.length > 0) {
+        const rangeConditions: string[] = [];
+        for (const range of query.amountRanges) {
+          if (range.max === null) {
+            rangeConditions.push('amount >= ?');
+            params.push(range.min);
+          } else {
+            rangeConditions.push('(amount >= ? AND amount <= ?)');
+            params.push(range.min, range.max);
+          }
+        }
+        conditions.push(`(${rangeConditions.join(' OR ')})`);
+      }
+
+      if (query.cursor) {
+        conditions.push('(occurred_at_utc < ? OR (occurred_at_utc = ? AND id < ?))');
+        params.push(query.cursor.occurred_at_utc, query.cursor.occurred_at_utc, query.cursor.id);
+      }
+
+      params.push(query.limit);
+      const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+      return database.getAllAsync<HappinessEntry>(
+        `SELECT * FROM happiness_entries
+         ${whereClause}
+         ORDER BY occurred_at_utc DESC, id DESC
+         LIMIT ?;`,
+        params,
+      );
+    },
+
+    async hasMatchingEntryInMonth(
+      startDate: string,
+      endDate: string,
+      query: Pick<HappinessEntryPageQuery, 'contentQuery' | 'amountRanges'>,
+    ): Promise<boolean> {
+      // Do the bounded month query directly so navigation does not need to load history first.
+      const conditions = ['occurred_local_date >= ?', 'occurred_local_date < ?'];
+      const params: SqlParameters = [startDate, endDate];
+      const contentQuery = query.contentQuery?.trim();
+      if (contentQuery) {
+        conditions.push('content LIKE ? ESCAPE \'\\\'');
+        params.push(`%${escapeLikeValue(contentQuery)}%`);
+      }
+      if (query.amountRanges && query.amountRanges.length > 0) {
+        const rangeConditions: string[] = [];
+        for (const range of query.amountRanges) {
+          if (range.max === null) {
+            rangeConditions.push('amount >= ?'); params.push(range.min);
+          } else {
+            rangeConditions.push('(amount >= ? AND amount <= ?)'); params.push(range.min, range.max);
+          }
+        }
+        conditions.push(`(${rangeConditions.join(' OR ')})`);
+      }
+      return (await database.getFirstAsync<{ id: number }>(
+        `SELECT id FROM happiness_entries WHERE ${conditions.join(' AND ')} LIMIT 1;`, params,
+      )) !== null;
+    },
+
     async update(id: number, draft: HappinessEntryDraft): Promise<HappinessEntry | null> {
       const result = await database.runAsync(
         `UPDATE happiness_entries
@@ -116,6 +203,10 @@ export function createHappinessRepository(database: DatabaseConnection) {
       return result.changes > 0;
     },
   };
+}
+
+function escapeLikeValue(value: string): string {
+  return value.replace(/[\\%_]/g, '\\$&');
 }
 
 async function applyVersionOneMigration(database: DatabaseConnection): Promise<void> {
