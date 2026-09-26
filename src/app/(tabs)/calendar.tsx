@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, FlatList, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, FlatList, Modal, PanResponder, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useFocusEffect } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 
@@ -47,7 +47,14 @@ export default function CalendarScreen() {
   // Match the existing tabs' focus-driven refresh after edits in another screen.
   useFocusEffect(useCallback(() => { void loadMonth(); }, [loadMonth]));
   const cells = useMemo(() => getCalendarMonthGrid(month), [month]);
-  const changeMonth = (amount: number) => setMonth((current) => moveMonth(current, amount));
+  const changeMonth = useCallback((amount: number) => setMonth((current) => moveMonth(current, amount)), []);
+  const swipeResponder = useMemo(() => PanResponder.create({
+    onMoveShouldSetPanResponder: (_, gesture) => Math.abs(gesture.dx) > 8 && Math.abs(gesture.dx) > Math.abs(gesture.dy),
+    onPanResponderRelease: (_, gesture) => {
+      if (gesture.dx <= -50) changeMonth(1);
+      if (gesture.dx >= 50) changeMonth(-1);
+    },
+  }), [changeMonth]);
   const loadDay = async (localDate: string) => {
     const id = ++dayRequestId.current; setIsDayLoading(true); setDayError(null);
     try {
@@ -65,7 +72,7 @@ export default function CalendarScreen() {
   const deleteEntry = async (entry: HappinessEntry) => { if (isDeleting) return; setIsDeleting(true); try { if (!await createHappinessRepository(database).remove(entry.id)) throw new Error(); await Promise.all([loadMonth(), selectedDate ? loadDay(selectedDate) : Promise.resolve()]); } catch { Alert.alert('無法刪除', '刪除快樂紀錄失敗，請稍後再試。'); } finally { setIsDeleting(false); } };
   const saveEdit = async (values: HappinessFormValues) => { if (!editingEntry || isSavingEdit) return; const validation = validateHappinessForm(values); if (!validation.valid) { setEditError(validation.message); return; } setIsSavingEdit(true); setEditError(null); try { if (!await createHappinessRepository(database).update(editingEntry.id, validation.draft)) throw new Error(); setEditingEntry(null); await Promise.all([loadMonth(), selectedDate ? loadDay(selectedDate) : Promise.resolve()]); } catch { setEditError('儲存失敗，請稍後再試。'); } finally { setIsSavingEdit(false); } };
 
-  return <View style={styles.container}>
+  return <View {...swipeResponder.panHandlers} style={styles.container}>
     <View style={styles.monthBar}><MonthButton direction="previous" onPress={() => changeMonth(-1)} /><Pressable accessibilityLabel="選擇月份" accessibilityRole="button" onPress={() => setIsMonthPickerVisible(true)} style={({ pressed }) => [styles.monthTitleButton, pressed && styles.pressed]}><Text accessibilityRole="header" style={styles.monthTitle}>{formatMonthTitle(month)}</Text></Pressable><MonthButton direction="next" onPress={() => changeMonth(1)} /></View>
     {isLoading ? <LoadingState /> : error ? <ErrorState error={error} onRetry={loadMonth} /> : <ScrollView contentContainerStyle={styles.content}>
       <View style={styles.weekdayRow}>{WEEKDAYS.map((weekday) => <Text key={weekday} style={styles.weekday}>{weekday}</Text>)}</View>
