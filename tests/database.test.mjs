@@ -8,7 +8,7 @@ import {
   getDefaultHappinessFormValues,
   validateHappinessForm,
 } from '../src/data/happiness-form.ts';
-import { getMonthDateRange, moveMonth, parseMonthKey } from '../src/data/month.ts';
+import { getCalendarMonthGrid, getMonthDateRange, moveMonth, parseMonthKey } from '../src/data/month.ts';
 import { getStatisticsDateRange } from '../src/data/statistics.ts';
 import {
   createHappinessRepository,
@@ -117,6 +117,20 @@ test('reads one selected month in descending occurrence order', async () => {
   assert.notEqual(january.id, februaryLate.id);
 });
 
+test('groups calendar counts by preserved local date within only the requested month', async () => {
+  const database = createDatabaseAdapter();
+  await initializeDatabase(database);
+  const repository = createHappinessRepository(database);
+  await repository.create({ ...draftFor('first', '2024-02-29', '00:15', 480), amount: 10 });
+  await repository.create({ ...draftFor('second', '2024-02-29', '22:00', 480), amount: 100 });
+  await repository.create(draftFor('outside', '2024-03-01', '12:00', 480));
+
+  assert.deepEqual(
+    await repository.getDailyCountsByLocalDateRange('2024-02-01', '2024-03-01'),
+    [{ occurred_local_date: '2024-02-29', count: 2, amounts: '10,100' }],
+  );
+});
+
 test('pages filtered searches with amount ranges in stable descending order', async () => {
   const database = createDatabaseAdapter();
   await initializeDatabase(database);
@@ -189,6 +203,14 @@ test('parses and moves selected months across year boundaries', () => {
   assert.deepEqual(getMonthDateRange({ year: 2026, month: 12 }), {
     startDate: '2026-12-01', endDate: '2027-01-01',
   });
+});
+
+test('builds a Sunday-first six-week calendar grid, including leap day', () => {
+  const february = getCalendarMonthGrid({ year: 2024, month: 2 });
+  assert.equal(february.length, 42);
+  assert.equal(february[4]?.localDate, '2024-02-01');
+  assert.equal(february[32]?.localDate, '2024-02-29');
+  assert.equal(february[33], null);
 });
 
 test('persists entries after a serialized database is reopened', async () => {

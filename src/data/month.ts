@@ -1,3 +1,4 @@
+//for calender month grid, we use a Sunday-first, six-week grid so every calendar row has equal height. This means that the first day of the month may not be in the first cell of the grid, and the last day of the month may not be in the last cell of the grid. The cells that are not part of the current month are filled with null values.
 export type LocalMonth = {
   year: number;
   month: number;
@@ -5,6 +6,28 @@ export type LocalMonth = {
 
 export function getCurrentLocalMonth(now = new Date()): LocalMonth {
   return { year: now.getFullYear(), month: now.getMonth() + 1 };
+}
+
+export type CalendarDay = {
+  day: number;
+  localDate: string;
+};
+
+/** Returns a Sunday-first, six-week grid so every calendar row has equal height. */
+export function getCalendarMonthGrid(month: LocalMonth): (CalendarDay | null)[] {
+  const firstWeekday = new Date(month.year, month.month - 1, 1).getDay();
+  const daysInMonth = new Date(month.year, month.month, 0).getDate();
+  const cells: (CalendarDay | null)[] = Array<CalendarDay | null>(42).fill(null);
+  const key = getMonthKey(month);
+
+  for (let day = 1; day <= daysInMonth; day += 1) {
+    cells[firstWeekday + day - 1] = {
+      day,
+      localDate: `${key}-${String(day).padStart(2, '0')}`,
+    };
+  }
+
+  return cells;
 }
 
 export function getMonthKey(month: LocalMonth): string {

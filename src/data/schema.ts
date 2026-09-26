@@ -43,6 +43,13 @@ export type HappinessStatistics = {
   totalAmount: number;
 };
 
+export type DailyHappinessEntryCount = {
+  occurred_local_date: string;
+  count: number;
+  /** Comma-separated entry amounts, retained only to colour calendar dots. */
+  amounts: string;
+};
+
 //everytime when the app starts, we check if the database schema is up to date. If not, we apply migrations to bring it up to date.
 export async function initializeDatabase(database: DatabaseConnection): Promise<void> {
   await database.execAsync('PRAGMA journal_mode = WAL;');
@@ -105,6 +112,20 @@ export function createHappinessRepository(database: DatabaseConnection) {
         `SELECT * FROM happiness_entries
          WHERE occurred_local_date >= ? AND occurred_local_date < ?
          ORDER BY occurred_at_utc DESC, id DESC;`,
+        [startDate, endDate],
+      );
+    },
+
+    getDailyCountsByLocalDateRange(
+      startDate: string,
+      endDate: string,
+    ): Promise<DailyHappinessEntryCount[]> {
+      return database.getAllAsync<DailyHappinessEntryCount>(
+        `SELECT occurred_local_date, COUNT(*) AS count, GROUP_CONCAT(amount, ',') AS amounts
+         FROM happiness_entries
+         WHERE occurred_local_date >= ? AND occurred_local_date < ?
+         GROUP BY occurred_local_date
+         ORDER BY occurred_local_date ASC;`,
         [startDate, endDate],
       );
     },
