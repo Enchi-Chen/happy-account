@@ -60,6 +60,6 @@ export default function DepositScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { backgroundColor: colors.background, flex: 1 },
+  container: { backgroundColor: colors.background, flex: 1},
   intro: { color: colors.muted, fontSize: 16, lineHeight: 24, marginHorizontal: 20, marginTop: 20 },
 });

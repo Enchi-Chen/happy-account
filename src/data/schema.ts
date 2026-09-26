@@ -38,6 +38,11 @@ export type HappinessEntryPageQuery = {
   amountRanges?: HappinessAmountRange[];
 };
 
+export type HappinessStatistics = {
+  count: number;
+  totalAmount: number;
+};
+
 //everytime when the app starts, we check if the database schema is up to date. If not, we apply migrations to bring it up to date.
 export async function initializeDatabase(database: DatabaseConnection): Promise<void> {
   await database.execAsync('PRAGMA journal_mode = WAL;');
@@ -102,6 +107,16 @@ export function createHappinessRepository(database: DatabaseConnection) {
          ORDER BY occurred_at_utc DESC, id DESC;`,
         [startDate, endDate],
       );
+    },
+
+    async getStatistics(dateRange?: { startDate: string; endDate: string }): Promise<HappinessStatistics> {
+      const result = await database.getFirstAsync<{ count: number; totalAmount: number }>(
+        `SELECT COUNT(*) AS count, COALESCE(SUM(amount), 0) AS totalAmount
+         FROM happiness_entries
+         ${dateRange ? 'WHERE occurred_local_date >= ? AND occurred_local_date < ?' : ''};`,
+        dateRange ? [dateRange.startDate, dateRange.endDate] : [],
+      );
+      return { count: Number(result?.count ?? 0), totalAmount: Number(result?.totalAmount ?? 0) };
     },
 
     /**

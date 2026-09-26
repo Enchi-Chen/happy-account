@@ -1,14 +1,14 @@
 import { Tabs } from 'expo-router';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { colors } from '@/constants/theme';
 
 export default function TabLayout() {
   return (
+    <SafeAreaView edges={['top']} style={{ flex: 1 }}>
     <Tabs
       screenOptions={{
-        headerStyle: { backgroundColor: colors.surface },
-        headerTintColor: colors.text,
-        headerTitleStyle: { fontWeight: '700' },
+        headerShown: false,
         tabBarActiveTintColor: colors.primary,
         tabBarInactiveTintColor: colors.muted,
         tabBarStyle: { backgroundColor: colors.surface, borderTopColor: colors.border },
@@ -19,5 +19,6 @@ export default function TabLayout() {
       <Tabs.Screen name="calendar" options={{ title: '月曆' }} />
       <Tabs.Screen name="settings" options={{ title: '設定' }} />
     </Tabs>
+    </SafeAreaView>
   );
 }

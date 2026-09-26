@@ -9,6 +9,7 @@ import {
   validateHappinessForm,
 } from '../src/data/happiness-form.ts';
 import { getMonthDateRange, moveMonth, parseMonthKey } from '../src/data/month.ts';
+import { getStatisticsDateRange } from '../src/data/statistics.ts';
 import {
   createHappinessRepository,
   DATABASE_SCHEMA_VERSION,
@@ -137,6 +138,28 @@ test('pages filtered searches with amount ranges in stable descending order', as
   assert.notEqual(oldest.id, middle.id);
   assert.equal(await repository.hasMatchingEntryInMonth('2026-03-01', '2026-04-01', { contentQuery: '吃飯', amountRanges: [{ min: 100, max: null }] }), true);
   assert.equal(await repository.hasMatchingEntryInMonth('2026-01-01', '2026-02-01', { contentQuery: '吃飯', amountRanges: [{ min: 100, max: null }] }), false);
+});
+
+test('calculates all-time and local-date-range statistics in SQLite', async () => {
+  const database = createDatabaseAdapter();
+  await initializeDatabase(database);
+  const repository = createHappinessRepository(database);
+  await repository.create({ ...draftFor('週日', '2026-03-01', '12:00'), amount: 9 });
+  await repository.create({ ...draftFor('週一一', '2026-03-02', '12:00'), amount: 10 });
+  await repository.create({ ...draftFor('週一二', '2026-03-02', '18:00'), amount: 20 });
+  await repository.create({ ...draftFor('下週', '2026-03-09', '12:00'), amount: 50 });
+
+  assert.deepEqual(await repository.getStatistics(), { count: 4, totalAmount: 89 });
+  assert.deepEqual(await repository.getStatistics({ startDate: '2026-03-02', endDate: '2026-03-09' }), { count: 2, totalAmount: 30 });
+  assert.deepEqual(await repository.getStatistics({ startDate: '2026-04-01', endDate: '2026-05-01' }), { count: 0, totalAmount: 0 });
+});
+
+test('builds Monday-based week, month, and year local date ranges', () => {
+  const sunday = new Date(2026, 2, 1, 23, 30);
+  assert.deepEqual(getStatisticsDateRange('week', sunday), { startDate: '2026-02-23', endDate: '2026-03-02' });
+  assert.deepEqual(getStatisticsDateRange('week', new Date(2026, 2, 2)), { startDate: '2026-03-02', endDate: '2026-03-09' });
+  assert.deepEqual(getStatisticsDateRange('month', new Date(2024, 1, 29)), { startDate: '2024-02-01', endDate: '2024-03-01' });
+  assert.deepEqual(getStatisticsDateRange('year', new Date(2026, 11, 31)), { startDate: '2026-01-01', endDate: '2027-01-01' });
 });
 
 test('moves an edited entry to its new month, keeps ordering, and persists after reopen', async () => {
