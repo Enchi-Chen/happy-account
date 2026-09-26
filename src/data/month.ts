@@ -52,6 +52,19 @@ export function getMonthDateRange(month: LocalMonth): { startDate: string; endDa
   return { startDate: `${startDate}-01`, endDate: `${getMonthKey(moveMonth(month, 1))}-01` };
 }
 
+export function getLocalDateRange(localDate: string): { startDate: string; endDate: string } {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(localDate);
+  if (!match) throw new Error('Local date must use YYYY-MM-DD format.');
+  const date = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+  if (Number.isNaN(date.getTime()) || formatLocalDate(date) !== localDate) throw new Error('Local date is not valid.');
+  date.setDate(date.getDate() + 1);
+  return { startDate: localDate, endDate: formatLocalDate(date) };
+}
+
+function formatLocalDate(date: Date): string {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+}
+
 export function formatMonthTitle(month: LocalMonth): string {
   return `${month.year} 年 ${month.month} 月`;
 }

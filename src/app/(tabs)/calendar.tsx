@@ -1,13 +1,16 @@
 import { useCallback, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, FlatList, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useFocusEffect } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 
 import { getHappinessLevelColors } from '@/constants/happiness-levels';
+import { HappinessEntryCard } from '@/components/HappinessEntryCard';
+import { HappinessEntryForm } from '@/components/HappinessEntryForm';
 import { MonthPickerModal } from '@/components/MonthPickerModal';
 import { colors } from '@/constants/theme';
-import { getCalendarMonthGrid, getCurrentLocalMonth, getMonthDateRange, moveMonth, formatMonthTitle, type LocalMonth } from '@/src/data/month';
-import { createHappinessRepository, type DailyHappinessEntryCount } from '@/src/data/schema';
+import { getHappinessFormValues, validateHappinessForm, type HappinessFormValues } from '@/src/data/happiness-form';
+import { getCalendarMonthGrid, getCurrentLocalMonth, getLocalDateRange, getMonthDateRange, moveMonth, formatMonthTitle, type LocalMonth } from '@/src/data/month';
+import { createHappinessRepository, type DailyHappinessEntryCount, type HappinessEntry } from '@/src/data/schema';
 
 const WEEKDAYS = ['日', '一', '二', '三', '四', '五', '六'];
 const MAX_VISIBLE_DOTS = 11;
@@ -16,11 +19,20 @@ type CalendarCounts = Record<string, { count: number; amounts: number[] }>;
 export default function CalendarScreen() {
   const database = useSQLiteContext();
   const requestId = useRef(0);
+  const dayRequestId = useRef(0);
   const [month, setMonth] = useState<LocalMonth>(getCurrentLocalMonth);
   const [counts, setCounts] = useState<CalendarCounts>({});
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isMonthPickerVisible, setIsMonthPickerVisible] = useState(false);
+  const [selectedDate, setSelectedDate] = useState<string | null>(null);
+  const [dayEntries, setDayEntries] = useState<HappinessEntry[]>([]);
+  const [isDayLoading, setIsDayLoading] = useState(false);
+  const [dayError, setDayError] = useState<string | null>(null);
+  const [editingEntry, setEditingEntry] = useState<HappinessEntry | null>(null);
+  const [editError, setEditError] = useState<string | null>(null);
+  const [isSavingEdit, setIsSavingEdit] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
   const loadMonth = useCallback(async () => {
     const id = ++requestId.current; setIsLoading(true); setError(null);
     try {
@@ -36,15 +48,33 @@ export default function CalendarScreen() {
   useFocusEffect(useCallback(() => { void loadMonth(); }, [loadMonth]));
   const cells = useMemo(() => getCalendarMonthGrid(month), [month]);
   const changeMonth = (amount: number) => setMonth((current) => moveMonth(current, amount));
+  const loadDay = async (localDate: string) => {
+    const id = ++dayRequestId.current; setIsDayLoading(true); setDayError(null);
+    try {
+      const range = getLocalDateRange(localDate);
+      const entries = await createHappinessRepository(database).getByLocalDateRange(range.startDate, range.endDate);
+      if (id === dayRequestId.current) setDayEntries(entries);
+    } catch {
+      if (id === dayRequestId.current) setDayError('無法讀取當日快樂紀錄，請再試一次。');
+    } finally { if (id === dayRequestId.current) setIsDayLoading(false); }
+  };
+  const openDay = (localDate: string) => { setSelectedDate(localDate); void loadDay(localDate); };
+  const closeDay = () => { dayRequestId.current += 1; setEditingEntry(null); setSelectedDate(null); };
+  const chooseEntryAction = (entry: HappinessEntry) => Alert.alert('管理快樂紀錄', '請選擇要執行的操作。', [{ text: '取消', style: 'cancel' }, { text: '刪除', style: 'destructive', onPress: () => confirmDelete(entry) }, { text: '編輯', onPress: () => { setEditError(null); setEditingEntry(entry); } }]);
+  const confirmDelete = (entry: HappinessEntry) => Alert.alert('刪除快樂紀錄？', '刪除後無法復原。', [{ text: '取消', style: 'cancel' }, { text: '刪除', style: 'destructive', onPress: () => void deleteEntry(entry) }]);
+  const deleteEntry = async (entry: HappinessEntry) => { if (isDeleting) return; setIsDeleting(true); try { if (!await createHappinessRepository(database).remove(entry.id)) throw new Error(); await Promise.all([loadMonth(), selectedDate ? loadDay(selectedDate) : Promise.resolve()]); } catch { Alert.alert('無法刪除', '刪除快樂紀錄失敗，請稍後再試。'); } finally { setIsDeleting(false); } };
+  const saveEdit = async (values: HappinessFormValues) => { if (!editingEntry || isSavingEdit) return; const validation = validateHappinessForm(values); if (!validation.valid) { setEditError(validation.message); return; } setIsSavingEdit(true); setEditError(null); try { if (!await createHappinessRepository(database).update(editingEntry.id, validation.draft)) throw new Error(); setEditingEntry(null); await Promise.all([loadMonth(), selectedDate ? loadDay(selectedDate) : Promise.resolve()]); } catch { setEditError('儲存失敗，請稍後再試。'); } finally { setIsSavingEdit(false); } };
 
   return <View style={styles.container}>
     <View style={styles.monthBar}><MonthButton direction="previous" onPress={() => changeMonth(-1)} /><Pressable accessibilityLabel="選擇月份" accessibilityRole="button" onPress={() => setIsMonthPickerVisible(true)} style={({ pressed }) => [styles.monthTitleButton, pressed && styles.pressed]}><Text accessibilityRole="header" style={styles.monthTitle}>{formatMonthTitle(month)}</Text></Pressable><MonthButton direction="next" onPress={() => changeMonth(1)} /></View>
     {isLoading ? <LoadingState /> : error ? <ErrorState error={error} onRetry={loadMonth} /> : <ScrollView contentContainerStyle={styles.content}>
       <View style={styles.weekdayRow}>{WEEKDAYS.map((weekday) => <Text key={weekday} style={styles.weekday}>{weekday}</Text>)}</View>
-      <View style={styles.grid}>{cells.map((cell, index) => <CalendarCell key={cell?.localDate ?? `empty-${index}`} cell={cell} data={cell ? counts[cell.localDate] : undefined} />)}</View>
+      <View style={styles.grid}>{cells.map((cell, index) => <CalendarCell key={cell?.localDate ?? `empty-${index}`} cell={cell} data={cell ? counts[cell.localDate] : undefined} onPress={openDay} />)}</View>
       {Object.keys(counts).length === 0 && <Text style={styles.emptyText}>這個月還沒有快樂紀錄。</Text>}
     </ScrollView>}
     {isMonthPickerVisible && <MonthPickerModal selectedMonth={month} onClose={() => setIsMonthPickerVisible(false)} onSelect={(selectedMonth) => { setMonth(selectedMonth); setIsMonthPickerVisible(false); }} />}
+    {selectedDate && <Modal animationType="slide" onRequestClose={closeDay} transparent visible><View style={dayModalStyles.backdrop}><View style={dayModalStyles.sheet}><View style={dayModalStyles.header}><Text accessibilityRole="header" style={dayModalStyles.title}>{selectedDate} 的快樂紀錄</Text><Pressable accessibilityRole="button" onPress={closeDay} style={dayModalStyles.closeButton}><Text style={dayModalStyles.closeText}>關閉</Text></Pressable></View>{isDayLoading ? <View style={dayModalStyles.state}><ActivityIndicator color={colors.primary} /></View> : dayError ? <View style={dayModalStyles.state}><Text style={styles.errorText}>{dayError}</Text><Pressable accessibilityRole="button" onPress={() => void loadDay(selectedDate)} style={styles.retryButton}><Text style={styles.retryText}>重新載入</Text></Pressable></View> : dayEntries.length === 0 ? <View style={dayModalStyles.state}><Text style={styles.emptyText}>這一天沒有快樂紀錄。</Text></View> : <FlatList contentContainerStyle={dayModalStyles.list} data={dayEntries} keyExtractor={(entry) => String(entry.id)} renderItem={({ item }) => <HappinessEntryCard entry={item} onPress={() => chooseEntryAction(item)} />} />}</View></View></Modal>}
+    <Modal animationType="slide" onRequestClose={() => !isSavingEdit && setEditingEntry(null)} transparent visible={editingEntry !== null}><View style={dayModalStyles.backdrop}><View style={dayModalStyles.editSheet}><View style={dayModalStyles.header}><Text accessibilityRole="header" style={dayModalStyles.title}>編輯快樂</Text><Pressable accessibilityRole="button" disabled={isSavingEdit} onPress={() => setEditingEntry(null)} style={dayModalStyles.closeButton}><Text style={dayModalStyles.closeText}>取消</Text></Pressable></View>{editingEntry && <HappinessEntryForm key={editingEntry.id} error={editError} initialValues={getHappinessFormValues(editingEntry)} isSubmitting={isSavingEdit} onChange={() => setEditError(null)} onSubmit={(values) => void saveEdit(values)} submitLabel="儲存變更" submittingLabel="儲存中" />}</View></View></Modal>
   </View>;
 }
 
@@ -58,17 +88,29 @@ function MonthButton({ direction, onPress }: { direction: 'previous' | 'next'; o
   const previous = direction === 'previous';
   return <Pressable accessibilityLabel={previous ? '上一個月' : '下一個月'} accessibilityRole="button" onPress={onPress} style={({ pressed }) => [styles.monthButton, pressed && styles.pressed]}><Text style={styles.monthButtonText}>{previous ? '‹' : '›'}</Text></Pressable>;
 }
-function CalendarCell({ cell, data }: { cell: ReturnType<typeof getCalendarMonthGrid>[number]; data?: CalendarCounts[string] }) {
+function CalendarCell({ cell, data, onPress }: { cell: ReturnType<typeof getCalendarMonthGrid>[number]; data?: CalendarCounts[string]; onPress: (localDate: string) => void }) {
   if (!cell) return <View accessibilityElementsHidden importantForAccessibility="no-hide-descendants" style={[styles.dayCell, styles.emptyCell]} />;
   const visibleCount = Math.min(data?.count ?? 0, MAX_VISIBLE_DOTS);
   const hasOverflow = (data?.count ?? 0) > MAX_VISIBLE_DOTS;
-  return <View accessibilityLabel={`${cell.localDate}${data ? `，${data.count} 筆快樂紀錄` : ''}`} style={styles.dayCell}>
+  return <Pressable accessibilityLabel={`${cell.localDate}${data ? `，${data.count} 筆快樂紀錄` : ''}`} accessibilityRole="button" onPress={() => onPress(cell.localDate)} style={({ pressed }) => [styles.dayCell, pressed && styles.pressed]}>
     <Text style={styles.dayNumber}>{cell.day}</Text><View style={styles.dots}>
       {Array.from({ length: visibleCount }, (_, index) => <View key={index} style={[styles.dot, { backgroundColor: getHappinessLevelColors(data?.amounts[index] ?? 1).amountColor }]} />)}
       {hasOverflow && <Text style={styles.plus}>+</Text>}
     </View>
-  </View>;
+  </Pressable>;
 }
+
+const dayModalStyles = StyleSheet.create({
+  backdrop: { backgroundColor: 'rgba(0,0,0,0.35)', flex: 1, justifyContent: 'flex-end' },
+  sheet: { backgroundColor: colors.background, borderTopLeftRadius: 20, borderTopRightRadius: 20, height: '80%' },
+  editSheet: { backgroundColor: colors.background, borderTopLeftRadius: 20, borderTopRightRadius: 20, height: '90%' },
+  header: { alignItems: 'center', flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: 20, paddingTop: 18 },
+  title: { color: colors.text, fontSize: 20, fontWeight: '700' },
+  closeButton: { justifyContent: 'center', minHeight: 44, paddingHorizontal: 6 },
+  closeText: { color: colors.primary, fontSize: 16, fontWeight: '700' },
+  list: { gap: 12, padding: 16, paddingBottom: 28 },
+  state: { alignItems: 'center', flex: 1, justifyContent: 'center', padding: 24 },
+});
 function LoadingState() { return <View style={styles.state}><ActivityIndicator color={colors.primary} /><Text style={styles.stateText}>正在載入月份紀錄…</Text></View>; }
 function ErrorState({ error, onRetry }: { error: string; onRetry: () => Promise<void> }) { return <View style={styles.state}><Text style={styles.errorText}>{error}</Text><Pressable accessibilityRole="button" onPress={() => void onRetry()} style={styles.retryButton}><Text style={styles.retryText}>重新載入</Text></Pressable></View>; }
 
