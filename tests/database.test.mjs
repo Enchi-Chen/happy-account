@@ -15,6 +15,8 @@ import {
   DATABASE_SCHEMA_VERSION,
   initializeDatabase,
 } from '../src/data/schema.ts';
+import { parseHappinessCsvImport } from '../src/utils/csv-import.ts';
+import { happinessEntriesToCsv } from '../src/utils/csv.ts';
 
 const SQL = await initSqlJs({
   locateFile: (file) => fileURLToPath(new URL(`../node_modules/sql.js/dist/${file}`, import.meta.url)),
@@ -224,6 +226,72 @@ test('persists entries after a serialized database is reopened', async () => {
   const reopenedRepository = createHappinessRepository(reopenedDatabase);
 
   assert.deepEqual(await reopenedRepository.getById(created.id), created);
+});
+
+test('imports only new CSV entries, preserves source timestamps, and never uses source ids', async () => {
+  const database = createDatabaseAdapter();
+  await initializeDatabase(database);
+  const repository = createHappinessRepository(database);
+  const existing = await repository.create(draftFor('既有資料', '2026-04-01', '08:00', 480));
+  const sourceCsv = happinessEntriesToCsv([
+    {
+      ...existing,
+      id: 999,
+    },
+    {
+      id: 1,
+      amount: 100,
+      content: '從備份匯入的新紀錄',
+      occurred_at_utc: '2026-04-02T04:00:00.000Z',
+      occurred_local_date: '2026-04-02',
+      occurred_local_time: '12:00',
+      occurred_utc_offset_minutes: 480,
+      created_at: '2026-04-02T04:00:00.000Z',
+      updated_at: '2026-04-02T05:00:00.000Z',
+    },
+  ]);
+
+  const parsed = parseHappinessCsvImport(sourceCsv);
+  const firstResult = await repository.importEntries(parsed.entries);
+  assert.deepEqual(firstResult, { importedCount: 1, duplicateCount: 1 });
+
+  const imported = (await repository.getAll()).find((item) => item.content === '從備份匯入的新紀錄');
+  assert.ok(imported);
+  assert.notEqual(imported.id, 1);
+  assert.equal(imported.created_at, '2026-04-02T04:00:00.000Z');
+  assert.equal(imported.updated_at, '2026-04-02T05:00:00.000Z');
+
+  const secondResult = await repository.importEntries(parsed.entries);
+  assert.deepEqual(secondResult, { importedCount: 0, duplicateCount: 2 });
+});
+
+test('rolls back every CSV insertion if any insert fails', async () => {
+  const database = createDatabaseAdapter();
+  await initializeDatabase(database);
+  const repository = createHappinessRepository(database);
+  await database.execAsync(`
+    CREATE TRIGGER fail_csv_import
+    BEFORE INSERT ON happiness_entries
+    WHEN NEW.content = '故意失敗'
+    BEGIN
+      SELECT RAISE(ABORT, 'test import failure');
+    END;
+  `);
+
+  await assert.rejects(repository.importEntries([
+    {
+      amount: 10, content: '第一筆', occurred_at_utc: '2026-05-01T04:00:00.000Z',
+      occurred_local_date: '2026-05-01', occurred_local_time: '12:00', occurred_utc_offset_minutes: 480,
+      created_at: '2026-05-01T04:00:00.000Z', updated_at: '2026-05-01T04:00:00.000Z',
+    },
+    {
+      amount: 20, content: '故意失敗', occurred_at_utc: '2026-05-02T04:00:00.000Z',
+      occurred_local_date: '2026-05-02', occurred_local_time: '12:00', occurred_utc_offset_minutes: 480,
+      created_at: '2026-05-02T04:00:00.000Z', updated_at: '2026-05-02T04:00:00.000Z',
+    },
+  ]));
+
+  assert.equal((await repository.getAll()).length, 0);
 });
 
 test('converts a local date, time, and UTC offset without changing the local date', () => {

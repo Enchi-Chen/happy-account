@@ -10,6 +10,7 @@ export type DatabaseConnection = {
   runAsync(source: string, params: SqlParameters): Promise<{ changes: number; lastInsertRowId: number }>;
   getFirstAsync<T>(source: string, params: SqlParameters): Promise<T | null>;
   getAllAsync<T>(source: string, params: SqlParameters): Promise<T[]>;
+  withExclusiveTransactionAsync?: (task: (transaction: DatabaseConnection) => Promise<void>) => Promise<void>;
 };
 
 export type HappinessEntry = {
@@ -107,6 +108,48 @@ export function createHappinessRepository(database: DatabaseConnection) {
         'SELECT * FROM happiness_entries ORDER BY occurred_at_utc DESC, id DESC;',
         [],
       );
+    },
+
+    async importEntries(entries: Omit<HappinessEntry, 'id'>[]): Promise<{ importedCount: number; duplicateCount: number }> {
+      let importedCount = 0;
+      let duplicateCount = 0;
+
+      await runExclusiveTransaction(database, async (transaction) => {
+        const existingEntries = await transaction.getAllAsync<HappinessEntry>(
+          'SELECT * FROM happiness_entries;',
+          [],
+        );
+        const entryKeys = new Set(existingEntries.map(happinessEntryKey));
+
+        for (const entry of entries) {
+          const key = happinessEntryKey(entry);
+          if (entryKeys.has(key)) {
+            duplicateCount += 1;
+            continue;
+          }
+
+          await transaction.runAsync(
+            `INSERT INTO happiness_entries (
+              amount, content, occurred_at_utc, occurred_local_date, occurred_local_time,
+              occurred_utc_offset_minutes, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?);`,
+            [
+              entry.amount,
+              entry.content,
+              entry.occurred_at_utc,
+              entry.occurred_local_date,
+              entry.occurred_local_time,
+              entry.occurred_utc_offset_minutes,
+              entry.created_at,
+              entry.updated_at,
+            ],
+          );
+          entryKeys.add(key);
+          importedCount += 1;
+        }
+      });
+
+      return { importedCount, duplicateCount };
     },
 
     getByLocalDateRange(startDate: string, endDate: string): Promise<HappinessEntry[]> {
@@ -245,6 +288,38 @@ export function createHappinessRepository(database: DatabaseConnection) {
 
 function escapeLikeValue(value: string): string {
   return value.replace(/[\\%_]/g, '\\$&');
+}
+
+function happinessEntryKey(entry: Omit<HappinessEntry, 'id'>): string {
+  return JSON.stringify([
+    entry.occurred_local_date,
+    entry.occurred_local_time,
+    entry.amount,
+    entry.content,
+    entry.occurred_at_utc,
+    entry.occurred_utc_offset_minutes,
+    entry.created_at,
+    entry.updated_at,
+  ]);
+}
+
+async function runExclusiveTransaction(
+  database: DatabaseConnection,
+  task: (transaction: DatabaseConnection) => Promise<void>,
+): Promise<void> {
+  if (database.withExclusiveTransactionAsync) {
+    await database.withExclusiveTransactionAsync(task);
+    return;
+  }
+
+  await database.execAsync('BEGIN IMMEDIATE;');
+  try {
+    await task(database);
+    await database.execAsync('COMMIT;');
+  } catch (error) {
+    await database.execAsync('ROLLBACK;');
+    throw error;
+  }
 }
 
 // Applies the first migration to create the initial schema!真正定義資料庫的規格

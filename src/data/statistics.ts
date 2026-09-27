@@ -1,3 +1,4 @@
+//此檔案負責處理首頁統計資料的日期範圍計算邏輯(首頁)
 export type StatisticsPeriod = 'week' | 'month' | 'year';
 
 export type LocalDateRange = {

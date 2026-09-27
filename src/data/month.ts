@@ -1,4 +1,4 @@
-//for calender month grid, we use a Sunday-first, six-week grid so every calendar row has equal height. This means that the first day of the month may not be in the first cell of the grid, and the last day of the month may not be in the last cell of the grid. The cells that are not part of the current month are filled with null values.
+//製作月曆用的月曆格子，我們使用週日為第一天，六週的格子，這樣每個日曆列都有相同的高度。這意味著月份的第一天可能不在格子的第一個單元格中，而月份的最後一天可能不在格子的最後一個單元格中。不是當前月份的單元格會填入null值。
 export type LocalMonth = {
   year: number;
   month: number;

@@ -7,10 +7,12 @@ import { useSQLiteContext } from 'expo-sqlite';
 import { colors } from '@/constants/theme';
 import { createHappinessRepository } from '@/src/data/schema';
 import { createCsvExportFilename, happinessEntriesToCsv } from '@/src/utils/csv';
+import { CsvImportValidationError, decodeUtf8Csv, parseHappinessCsvImport } from '@/src/utils/csv-import';
 
 export default function SettingsScreen() {
   const database = useSQLiteContext();
   const [isExporting, setIsExporting] = useState(false);
+  const [isImporting, setIsImporting] = useState(false);
 
   const exportEntries = async () => {
     if (isExporting) return;
@@ -42,15 +44,49 @@ export default function SettingsScreen() {
     }
   };
 
+  const importEntries = async () => {
+    if (isImporting || isExporting) return;
+
+    setIsImporting(true);
+    try {
+      const selection = await File.pickFileAsync({
+        mimeTypes: ['text/csv', 'application/csv', 'text/comma-separated-values', 'application/vnd.ms-excel'],
+      });
+      if (selection.canceled) return;
+
+      const parsed = parseHappinessCsvImport(decodeUtf8Csv(await selection.result.bytes()));
+      const result = await createHappinessRepository(database).importEntries(parsed.entries);
+      const duplicateCount = parsed.duplicateRowCount + result.duplicateCount;
+      Alert.alert(
+        '匯入完成',
+        `CSV 共 ${parsed.sourceRowCount} 筆紀錄，新增 ${result.importedCount} 筆，略過 ${duplicateCount} 筆重複紀錄。`,
+      );
+    } catch (error) {
+      if (error instanceof CsvImportValidationError) {
+        Alert.alert('CSV 格式錯誤', `${error.message}\n本次沒有新增任何紀錄。`);
+      } else {
+        Alert.alert('匯入失敗', '無法讀取或寫入 CSV。原有紀錄沒有被修改，本次沒有新增任何紀錄。');
+      }
+    } finally {
+      setIsImporting(false);
+    }
+  };
+
   return <View style={styles.container}>
     <Text accessibilityRole="header" style={styles.title}>設定</Text>
     <View style={styles.section}>
       <Text style={styles.sectionTitle}>資料備份</Text>
       <Text style={styles.description}>將所有快樂紀錄匯出為 CSV，並透過系統分享或儲存。</Text>
-      <Pressable accessibilityRole="button" accessibilityState={{ disabled: isExporting }} disabled={isExporting} onPress={() => void exportEntries()} style={({ pressed }) => [styles.exportButton, (pressed || isExporting) && styles.exportButtonPressed]}>
+      <Pressable accessibilityRole="button" accessibilityState={{ disabled: isExporting || isImporting }} disabled={isExporting || isImporting} onPress={() => void exportEntries()} style={({ pressed }) => [styles.exportButton, (pressed || isExporting || isImporting) && styles.exportButtonPressed]}>
         {isExporting ? <ActivityIndicator color={colors.surface} /> : <Text style={styles.exportButtonText}>匯出快樂</Text>}
       </Pressable>
       {isExporting && <Text style={styles.status}>正在準備 CSV…</Text>}
+      <View style={styles.importDivider} />
+      <Text style={styles.description}>選擇符合快樂帳戶匯出格式的 CSV，僅新增尚未存在的紀錄。</Text>
+      <Pressable accessibilityRole="button" accessibilityState={{ disabled: isImporting || isExporting }} disabled={isImporting || isExporting} onPress={() => void importEntries()} style={({ pressed }) => [styles.importButton, (pressed || isImporting || isExporting) && styles.exportButtonPressed]}>
+        {isImporting ? <ActivityIndicator color={colors.primary} /> : <Text style={styles.importButtonText}>匯入 CSV</Text>}
+      </Pressable>
+      {isImporting && <Text style={styles.status}>正在驗證並匯入 CSV…</Text>}
     </View>
   </View>;
 }
@@ -64,5 +100,8 @@ const styles = StyleSheet.create({
   exportButton: { alignItems: 'center', backgroundColor: colors.primary, borderRadius: 10, justifyContent: 'center', marginTop: 20, minHeight: 48, paddingHorizontal: 16 },
   exportButtonPressed: { opacity: 0.65 },
   exportButtonText: { color: colors.surface, fontSize: 16, fontWeight: '700' },
+  importDivider: { borderTopColor: colors.border, borderTopWidth: 1, marginTop: 24, paddingTop: 4 },
+  importButton: { alignItems: 'center', borderColor: colors.primary, borderRadius: 10, borderWidth: 1, justifyContent: 'center', marginTop: 20, minHeight: 48, paddingHorizontal: 16 },
+  importButtonText: { color: colors.primary, fontSize: 16, fontWeight: '700' },
   status: { color: colors.muted, fontSize: 14, marginTop: 12, textAlign: 'center' },
 });
