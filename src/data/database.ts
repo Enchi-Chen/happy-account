@@ -1,5 +1,5 @@
 
-//此檔案負責管理資料庫的開啟與初始化，並提供一個函式來取得資料庫連線物件、重複呼叫時使用既有的Promise，避免重複開啟資料庫
+//此檔案負責管理資料庫的開啟與初始化時的連線，並提供一個函式來取得資料庫連線物件、重複呼叫時使用既有的Promise，避免重複開啟資料庫
 import * as SQLite from 'expo-sqlite';
 
 import { initializeDatabase } from './schema';

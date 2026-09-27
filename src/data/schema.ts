@@ -1,8 +1,10 @@
+//此檔案包含了資料庫的schema定義、資料操作方法(各方法使用的SQL語法)、以及資料庫的所有邏輯(如初始化與遷移)。
 export const DATABASE_SCHEMA_VERSION = 1;
 
 type SqlValue = string | number | null;
 type SqlParameters = SqlValue[];
 
+// 用於資料庫連線物件(如CreateDatabaseRepository)的型別定義，包含了五個expo-sqlite資料操作方法套件
 export type DatabaseConnection = {
   execAsync(source: string): Promise<void>;
   runAsync(source: string, params: SqlParameters): Promise<{ changes: number; lastInsertRowId: number }>;
@@ -66,7 +68,7 @@ export async function initializeDatabase(database: DatabaseConnection): Promise<
   }
 }
 
-//這個函式接收一個資料庫連線，並回傳一個包含五個資料操作方法的物件(日常使用)
+//這個函式接收一個資料庫連線，並回傳一個包含各種操作方法的物件(日常使用)，由DatabaseConnection提供的五個方法來執行SQL語法組合而成
 export function createHappinessRepository(database: DatabaseConnection) {
   const getById = (id: number): Promise<HappinessEntry | null> =>
     database.getFirstAsync<HappinessEntry>('SELECT * FROM happiness_entries WHERE id = ?;', [id]);
@@ -245,6 +247,7 @@ function escapeLikeValue(value: string): string {
   return value.replace(/[\\%_]/g, '\\$&');
 }
 
+// Applies the first migration to create the initial schema!真正定義資料庫的規格
 async function applyVersionOneMigration(database: DatabaseConnection): Promise<void> {
   await database.execAsync('BEGIN IMMEDIATE;');
 

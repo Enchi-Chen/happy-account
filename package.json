@@ -6,9 +6,11 @@
     "@react-native-community/datetimepicker": "9.1.0",
     "expo": "~57.0.24",
     "expo-constants": "~57.0.19",
+    "expo-file-system": "~57.0.7",
     "expo-font": "~57.0.4",
     "expo-linking": "~57.0.10",
     "expo-router": "~57.0.22",
+    "expo-sharing": "~57.0.22",
     "expo-splash-screen": "~57.0.9",
     "expo-sqlite": "~57.0.3",
     "expo-status-bar": "~57.0.1",
@@ -38,7 +40,8 @@
     "ios": "expo start --ios",
     "web": "expo start --web",
     "lint": "expo lint",
-    "test:database": "tsx --test tests/database.test.mjs"
+    "test:database": "tsx --test tests/database.test.mjs",
+    "test": "tsx --test tests/*.test.mjs"
   },
   "private": true
 }
