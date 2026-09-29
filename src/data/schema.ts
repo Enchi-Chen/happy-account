@@ -1,5 +1,5 @@
 //此檔案包含了資料庫的schema定義、資料操作方法(各方法使用的SQL語法)、以及資料庫的所有邏輯(如初始化與遷移)。
-export const DATABASE_SCHEMA_VERSION = 1;
+export const DATABASE_SCHEMA_VERSION = 2;
 
 type SqlValue = string | number | null;
 type SqlParameters = SqlValue[];
@@ -53,6 +53,17 @@ export type DailyHappinessEntryCount = {
   amounts: string;
 };
 
+export type DriveBackupKind = 'manual' | 'automatic';
+
+/** Non-secret, per-Google-account backup metadata. OAuth credentials are never stored here. */
+export type DriveBackupState = {
+  account_id: string;
+  folder_id: string | null;
+  last_successful_backup_at_utc: string | null;
+  last_successful_backup_kind: DriveBackupKind | null;
+  last_successful_auto_backup_month: string | null;
+};
+
 //everytime when the app starts, we check if the database schema is up to date. If not, we apply migrations to bring it up to date.
 export async function initializeDatabase(database: DatabaseConnection): Promise<void> {
   await database.execAsync('PRAGMA journal_mode = WAL;');
@@ -66,6 +77,9 @@ export async function initializeDatabase(database: DatabaseConnection): Promise<
 
   if (currentVersion < 1) {
     await applyVersionOneMigration(database);
+  }
+  if (currentVersion < 2) {
+    await applyVersionTwoMigration(database);
   }
 }
 
@@ -286,6 +300,58 @@ export function createHappinessRepository(database: DatabaseConnection) {
   };
 }
 
+export function createDriveBackupStateRepository(database: DatabaseConnection) {
+  const get = (accountId: string): Promise<DriveBackupState | null> =>
+    database.getFirstAsync<DriveBackupState>(
+      `SELECT account_id, folder_id, last_successful_backup_at_utc,
+              last_successful_backup_kind, last_successful_auto_backup_month
+       FROM drive_backup_state WHERE account_id = ?;`,
+      [accountId],
+    );
+
+  return {
+    get,
+
+    async saveFolderId(accountId: string, folderId: string): Promise<DriveBackupState> {
+      await database.runAsync(
+        `INSERT INTO drive_backup_state (account_id, folder_id)
+         VALUES (?, ?)
+         ON CONFLICT(account_id) DO UPDATE SET folder_id = excluded.folder_id;`,
+        [accountId, folderId],
+      );
+      const state = await get(accountId);
+      if (!state) throw new Error('Drive backup state could not be read after saving its folder.');
+      return state;
+    },
+
+    async markSuccessful(
+      accountId: string,
+      kind: DriveBackupKind,
+      successfulAtUtc: string,
+      automaticMonth?: string,
+    ): Promise<DriveBackupState> {
+      await database.runAsync(
+        `INSERT INTO drive_backup_state (
+          account_id, last_successful_backup_at_utc, last_successful_backup_kind,
+          last_successful_auto_backup_month
+        ) VALUES (?, ?, ?, ?)
+        ON CONFLICT(account_id) DO UPDATE SET
+          last_successful_backup_at_utc = excluded.last_successful_backup_at_utc,
+          last_successful_backup_kind = excluded.last_successful_backup_kind,
+          last_successful_auto_backup_month = CASE
+            WHEN excluded.last_successful_backup_kind = 'automatic'
+            THEN excluded.last_successful_auto_backup_month
+            ELSE drive_backup_state.last_successful_auto_backup_month
+          END;`,
+        [accountId, successfulAtUtc, kind, automaticMonth ?? null],
+      );
+      const state = await get(accountId);
+      if (!state) throw new Error('Drive backup state could not be read after saving success.');
+      return state;
+    },
+  };
+}
+
 function escapeLikeValue(value: string): string {
   return value.replace(/[\\%_]/g, '\\$&');
 }
@@ -344,6 +410,28 @@ async function applyVersionOneMigration(database: DatabaseConnection): Promise<v
       CREATE INDEX IF NOT EXISTS idx_happiness_entries_occurred_local_date
         ON happiness_entries (occurred_local_date);
       PRAGMA user_version = 1;
+      COMMIT;
+    `);
+  } catch (error) {
+    await database.execAsync('ROLLBACK;');
+    throw error;
+  }
+}
+
+async function applyVersionTwoMigration(database: DatabaseConnection): Promise<void> {
+  await database.execAsync('BEGIN IMMEDIATE;');
+  try {
+    await database.execAsync(`
+      CREATE TABLE IF NOT EXISTS drive_backup_state (
+        account_id TEXT PRIMARY KEY NOT NULL,
+        folder_id TEXT,
+        last_successful_backup_at_utc TEXT,
+        last_successful_backup_kind TEXT CHECK (
+          last_successful_backup_kind IS NULL OR last_successful_backup_kind IN ('manual', 'automatic')
+        ),
+        last_successful_auto_backup_month TEXT
+      );
+      PRAGMA user_version = 2;
       COMMIT;
     `);
   } catch (error) {

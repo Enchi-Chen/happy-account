@@ -12,6 +12,7 @@ import { getCalendarMonthGrid, getMonthDateRange, moveMonth, parseMonthKey } fro
 import { getStatisticsDateRange } from '../src/data/statistics.ts';
 import {
   createHappinessRepository,
+  createDriveBackupStateRepository,
   DATABASE_SCHEMA_VERSION,
   initializeDatabase,
 } from '../src/data/schema.ts';
@@ -78,6 +79,28 @@ test('initializes version 1 schema without clearing existing entries', async () 
 
   await initializeDatabase(database);
   assert.deepEqual(await repository.getById(created.id), created);
+});
+
+test('keeps Drive backup state per Google permission id without storing credentials', async () => {
+  const database = createDatabaseAdapter();
+  await initializeDatabase(database);
+  const repository = createDriveBackupStateRepository(database);
+
+  await repository.saveFolderId('google-account-a', 'folder-a');
+  await repository.markSuccessful('google-account-a', 'automatic', '2026-09-01T00:00:00.000Z', '2026-09');
+  await repository.saveFolderId('google-account-b', 'folder-b');
+  await repository.markSuccessful('google-account-b', 'manual', '2026-09-02T00:00:00.000Z');
+
+  assert.deepEqual(await repository.get('google-account-a'), {
+    account_id: 'google-account-a', folder_id: 'folder-a',
+    last_successful_backup_at_utc: '2026-09-01T00:00:00.000Z',
+    last_successful_backup_kind: 'automatic', last_successful_auto_backup_month: '2026-09',
+  });
+  assert.deepEqual(await repository.get('google-account-b'), {
+    account_id: 'google-account-b', folder_id: 'folder-b',
+    last_successful_backup_at_utc: '2026-09-02T00:00:00.000Z',
+    last_successful_backup_kind: 'manual', last_successful_auto_backup_month: null,
+  });
 });
 
 test('supports create, read, update, ordered reads, and delete', async () => {

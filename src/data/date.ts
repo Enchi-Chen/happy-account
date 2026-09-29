@@ -1,4 +1,4 @@
-//此檔案負責處理與日期和時間相關的邏輯，包括解析、格式化和計算。
+//此檔案負責處理日期和時間相關的邏輯，包括解析、格式化和計算。
 export type HappinessOccurrence = {
   occurredAtUtc: string;
   occurredLocalDate: string;
