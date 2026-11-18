@@ -4,7 +4,7 @@
     "slug": "happy-account",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/images/icon_v4.png",
+    "icon": "./assets/images/icon_v5.png",
     "scheme": "happy-account",
     "userInterfaceStyle": "automatic",
     "ios": {
@@ -14,7 +14,7 @@
       "package": "com.happyaccount.app",
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
-        "foregroundImage": "./assets/images/android-icon-foreground_v3.png",
+        "foregroundImage": "./assets/images/android-icon-foreground_v4.png",
         "backgroundImage": "./assets/images/android-icon-background_v3.png",
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
@@ -43,6 +43,12 @@
     ],
     "experiments": {
       "typedRoutes": true
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "d77c775c-6a20-4b01-8b94-65c8e47f747e"
+      }
     }
   }
 }
